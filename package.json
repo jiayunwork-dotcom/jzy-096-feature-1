@@ -1,0 +1,19 @@
+{
+  "name": "turn-restricted-router",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shortest-path routing on directed graphs with turn restrictions, exposed over HTTP.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "test": "npm run build && node --test dist/test/"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4"
+  }
+}
