@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Graph } from '../src/graph';
-import { parseGraphInput, parseRestrictions, parseRouteRequest, ValidationError } from '../src/validation';
+import {
+  MAX_STOPS,
+  parseGraphInput,
+  parseOrderedRouteRequest,
+  parseRestrictions,
+  parseRouteRequest,
+  parseStops,
+  ValidationError,
+} from '../src/validation';
 
 function expectValidationError(fn: () => unknown, pattern: RegExp): void {
   assert.throws(fn, (err: unknown) => {
@@ -122,4 +130,35 @@ test('rejects duplicate node ids and malformed bodies', () => {
   );
   expectValidationError(() => parseRouteRequest(null), /must be a JSON object/);
   expectValidationError(() => parseRouteRequest({ graph: null }), /graph must be an object/);
+});
+
+test('ordered request: stops omitted or null means an empty stop list', () => {
+  const req1 = parseOrderedRouteRequest({ ...validBody });
+  assert.deepEqual(req1.stops, []);
+  const req2 = parseOrderedRouteRequest({ ...validBody, stops: null });
+  assert.deepEqual(req2.stops, []);
+  const req3 = parseOrderedRouteRequest({ ...validBody, stops: ['b'] });
+  assert.deepEqual(req3.stops, ['b']);
+  // 相邻同名停靠点是合法输入。
+  const req4 = parseOrderedRouteRequest({ ...validBody, stops: ['b', 'b'] });
+  assert.deepEqual(req4.stops, ['b', 'b']);
+});
+
+test('ordered request: rejects more than 16 stops', () => {
+  const graph = new Graph(['a'], []);
+  expectValidationError(() => parseStops(graph, Array(MAX_STOPS + 1).fill('a')), new RegExp(`too many stops: 17 > ${MAX_STOPS}`));
+  // 正好 16 个通过。
+  assert.equal(parseStops(graph, Array(MAX_STOPS).fill('a')).length, MAX_STOPS);
+});
+
+test('ordered request: rejects unknown and non-string stop nodes', () => {
+  const graph = new Graph(['a', 'b'], []);
+  expectValidationError(() => parseStops(graph, ['a', 'zzz']), /stops\[1\] references unknown node "zzz"/);
+  expectValidationError(() => parseStops(graph, ['a', 3 as unknown as string]), /stops\[1\] is invalid/);
+  expectValidationError(() => parseStops(graph, {}), /stops must be an array/);
+
+  expectValidationError(
+    () => parseOrderedRouteRequest({ ...validBody, stops: ['nope'] }),
+    /stops\[0\] references unknown node "nope"/,
+  );
 });

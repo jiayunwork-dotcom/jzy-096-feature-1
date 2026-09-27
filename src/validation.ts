@@ -22,6 +22,13 @@ export interface RouteRequest {
   restrictions: TurnRestriction[];
 }
 
+export interface OrderedRouteRequest extends RouteRequest {
+  stops: NodeId[];
+}
+
+/** 一次整单最多经过的停靠点数。 */
+export const MAX_STOPS = 16;
+
 function isNodeId(x: unknown): x is NodeId {
   return typeof x === 'string' && x.length > 0;
 }
@@ -131,4 +138,42 @@ export function parseRouteRequest(body: unknown): RouteRequest {
   const dst = parseEndpoint(graph, target, 'target');
   const rs = parseRestrictions(graph, restrictions);
   return { graph, source: src, target: dst, restrictions: rs };
+}
+
+/**
+ * 解析整单请求的停靠点列表。写法复用现有请求结构，只新增一个 stops 字段：
+ *  - 省略或 null 按空列表处理（结果与单次最短路一致）；
+ *  - 必须是节点 id 字符串数组，数量上限 MAX_STOPS（16）；
+ *  - 引用不存在的节点与 source/target 同样拒绝并说明原因。
+ */
+export function parseStops(graph: Graph, raw: unknown): NodeId[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new ValidationError('stops must be an array of node id strings');
+  }
+  if (raw.length > MAX_STOPS) {
+    throw new ValidationError(`too many stops: ${raw.length} > ${MAX_STOPS} (maximum is ${MAX_STOPS})`);
+  }
+  return raw.map((s, i) => {
+    if (!isNodeId(s)) {
+      throw new ValidationError(`stops[${i}] is invalid (expected a node id string)`);
+    }
+    if (!graph.hasNode(s)) {
+      throw new ValidationError(`stops[${i}] references unknown node "${s}"`);
+    }
+    return s;
+  });
+}
+
+export function parseOrderedRouteRequest(body: unknown): OrderedRouteRequest {
+  if (typeof body !== 'object' || body === null) {
+    throw new ValidationError('request body must be a JSON object');
+  }
+  const { graph: rawGraph, source, target, restrictions, stops: rawStops } = body as Record<string, unknown>;
+  const graph = parseGraphInput(rawGraph);
+  const src = parseEndpoint(graph, source, 'source');
+  const dst = parseEndpoint(graph, target, 'target');
+  const rs = parseRestrictions(graph, restrictions);
+  const stops = parseStops(graph, rawStops);
+  return { graph, source: src, target: dst, restrictions: rs, stops };
 }
