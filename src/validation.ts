@@ -6,6 +6,7 @@
  */
 
 import { EdgeInput, Graph, NodeId } from './graph';
+import { MAX_STOPS } from './orderRoute';
 import { TurnRestriction } from './restrictions';
 
 export class ValidationError extends Error {
@@ -20,6 +21,11 @@ export interface RouteRequest {
   source: NodeId;
   target: NodeId;
   restrictions: TurnRestriction[];
+}
+
+export interface OrderRouteRequest extends RouteRequest {
+  /** 按顺序排列的停靠点（相邻允许重复）。 */
+  stops: NodeId[];
 }
 
 function isNodeId(x: unknown): x is NodeId {
@@ -131,4 +137,38 @@ export function parseRouteRequest(body: unknown): RouteRequest {
   const dst = parseEndpoint(graph, target, 'target');
   const rs = parseRestrictions(graph, restrictions);
   return { graph, source: src, target: dst, restrictions: rs };
+}
+
+/**
+ * 解析整单查询：复用 graph / source / target / restrictions 的全部校验，
+ * 额外解析有序停靠点列表。
+ *  - stops 缺省或为 null 时按空列表处理（等价于单次最短路）；
+ *  - 必须是数组、每项是图中存在的节点 id，与现有校验同样的方式拒绝；
+ *  - 数量超过 MAX_STOPS 直接拒绝。
+ */
+export function parseOrderRouteRequest(body: unknown): OrderRouteRequest {
+  const base = parseRouteRequest(body);
+  const rawStops = (body as Record<string, unknown>).stops;
+  if (rawStops === undefined || rawStops === null) {
+    return { ...base, stops: [] };
+  }
+  if (!Array.isArray(rawStops)) {
+    throw new ValidationError('stops must be an array of node id strings in visit order');
+  }
+  if (rawStops.length > MAX_STOPS) {
+    throw new ValidationError(
+      `too many stops: ${rawStops.length} > ${MAX_STOPS}; at most ${MAX_STOPS} stops are accepted`,
+    );
+  }
+  const stops: NodeId[] = [];
+  for (const [i, s] of rawStops.entries()) {
+    if (!isNodeId(s)) {
+      throw new ValidationError(`stops[${i}] is invalid (expected node id string)`);
+    }
+    if (!base.graph.hasNode(s)) {
+      throw new ValidationError(`stops[${i}] references unknown node "${s}"`);
+    }
+    stops.push(s);
+  }
+  return { ...base, stops };
 }
